@@ -63,6 +63,18 @@
                             <group string="End date">
                                 <field name="deactivate_on"/>
                             </group>
+                            <group string="Barcode Setup" attrs="{'invisible':[('web_token','!=',False)]}">
+                                <field name="web_token" readonly="1"/>
+                                <label for="web_token"/>
+                                        <div class="o_row">
+                                            <field name="web_token"/>
+                                            <button string="Generate" class="btn btn-link" type="object" name="gen_bc_data" attrs="{'invisible': [('web_token', '!=', False)]}"/>
+                                        </div>
+                                <field name="web_token_need_auth" readonly="1"/>
+                            </group>
+                            <group string="Share" attrs="{'invisible':[('web_token','=',False)]}">
+                                <field name="web_token_url" widget="url" readonly="1"/>
+                            </group>
                         </group>
                     </sheet>
                     <div class="oe_chatter">

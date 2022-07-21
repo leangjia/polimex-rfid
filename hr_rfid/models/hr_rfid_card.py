@@ -2,6 +2,7 @@
 from odoo import api, fields, models, exceptions, _
 from datetime import timedelta, datetime
 from enum import Enum
+import secrets
 import logging
 
 _logger = logging.getLogger(__name__)
@@ -93,6 +94,10 @@ class HrRfidCard(models.Model):
         required=True,
     )
 
+    web_token = fields.Char(copy=False, groups="base.group_erp_manager")
+    web_token_need_auth = fields.Boolean(string='Need user authentication', default=False)
+    web_token_url = fields.Char(copy=False, compute='_compute_web_url_token')
+
     door_rel_ids = fields.One2many(
         'hr.rfid.card.door.rel',
         'card_id',
@@ -134,6 +139,15 @@ class HrRfidCard(models.Model):
     #     """
     #     return []
 
+
+    @api.depends('web_token')
+    def _compute_web_url_token(self):
+        for c in self:
+            if c.web_token:
+                c.web_token_url = self.env['ir.config_parameter'].sudo().get_param('web.base.url')+'/webcard/%s' % c.web_token
+            else:
+                c.web_token_url = None
+
     def get_owner(self, event_dict: dict = None):
         self.ensure_one()
         if not event_dict:
@@ -167,6 +181,18 @@ class HrRfidCard(models.Model):
 
     def card_ready(self):
         return self.active
+
+    def gen_bc_data(self):
+        for c in self:
+            if c.card_type.id == self.env.ref('hr_rfid.hr_rfid_card_type_barcode').id:
+                number_hex, number = self.create_bc_card()
+                if number is not None:
+                    # c.write({
+                    #     'number': number,
+                    #     'web_token': secrets.token_urlsafe(20)
+                    # })
+                    c.number = number
+                    c.web_token = secrets.token_urlsafe(20)
 
     @api.onchange('activate_on', 'number')
     def _check_activate_on(self):
@@ -216,7 +242,7 @@ class HrRfidCard(models.Model):
                 for char in card.number:
                     int(char, 10)
             except ValueError:
-                raise exceptions.ValidationError('Card number digits must be from 0 to 9')
+                raise exceptions.ValidationError(_('Card number digits must be from 0 to 9'))
 
     @api.depends('card_reference', 'number')
     def _compute_card_name(self):
@@ -300,6 +326,30 @@ class HrRfidCard(models.Model):
         for card in self:
             card.door_rel_ids.unlink()
         return super(HrRfidCard, self).unlink()
+
+    @api.model
+    def hex_to_w34(self, bc):
+        return f"{int(bc[:4], 16):05}"f"{int(bc[4:], 16):05}"
+
+    @api.model
+    def w34_to_hex(self, w34):
+        return f"{int(w34[:5]):04x}"f"{int(w34[5:]):04x}"
+
+    @api.model
+    def create_bc_card(self):
+        i = 0
+        while True:
+            new_card_hex = secrets.token_hex(4)
+            card_number = self.hex_to_w34(new_card_hex)
+            card_ids = self.env['hr.rfid.card'].search([
+                ('number', '=', card_number)
+            ])
+            if len(card_ids) == 0:
+                return new_card_hex, card_number
+            if i > 10:
+                _logger.warning('Can not create barcode data. Random data duplicated 10 times!')
+                return None, None
+            i += 1
 
     @api.model
     def _update_cards(self):
